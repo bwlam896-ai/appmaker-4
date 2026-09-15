@@ -44,7 +44,22 @@ jobs:
                   "import android.widget.LinearLayout",
                   "import android.view.HapticFeedbackConstants"
               ]
-              for imp in needed_imports:
+              lines = content.splitlines()
+    pkg_line = f"package {app_pkg}"
+    imports = {"import android.view.View", "import android.widget.LinearLayout", "import android.view.HapticFeedbackConstants", f"import {app_pkg}.R"}
+    body_lines = []
+    for line in lines:
+        s = line.strip()
+        if s.startswith("package "):
+            pkg_line = s
+        elif s.startswith("import "):
+            imports.add(s)
+        else:
+            body_lines.append(line)
+    body = "".join(body_lines)
+    body = body.replace("CONTEXT_IGNORE_SECURITY", 'Context.VIBRATOR_SERVICE')
+    content = pkg_line + "" + "".join(sorted(list(imports))) + "" + body
+    #
                   if imp not in content:
                       content = imp + "\n" + content
 
