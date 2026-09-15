@@ -31,43 +31,55 @@ jobs:
         run: |
           rm -f preview.html || true
 
-          # تصحيح استيرادات Kotlin وحل غموض setView برمجياً بدقة عبر Python
+          # تصحيح استيرادات Kotlin وأخطاء الـ Vibrator تلقائياً
           python3 - << 'PYEOF'
-          import glob, re
+          import os, glob, re
 
-          for path in glob.glob("app/src/main/java/**/*.kt", recursive=True):
-              with open(path, "r", encoding="utf-8") as f:
+          app_pkg = 'com.appmaker.app'
+          if os.path.exists('app/build.gradle'):
+              with open('app/build.gradle', 'r', encoding='utf-8') as f:
+                  bg = f.read()
+              m_ns = re.search(r"namespace\s*['\"]([^'\"]+)['\"]", bg)
+              if m_ns:
+                  app_pkg = m_ns.group(1)
+              else:
+                  m_app = re.search(r"applicationId\s*['\"]([^'\"]+)['\"]", bg)
+                  if m_app:
+                      app_pkg = m_app.group(1)
+
+          for path in glob.glob('app/src/main/java/**/*.kt', recursive=True):
+              with open(path, 'r', encoding='utf-8') as f:
                   content = f.read()
 
-              needed_imports = [
-                  "import android.view.View",
-                  "import android.widget.LinearLayout",
-                  "import android.view.HapticFeedbackConstants"
-              ]
               lines = content.splitlines()
-    pkg_line = f"package {app_pkg}"
-    imports = {"import android.view.View", "import android.widget.LinearLayout", "import android.view.HapticFeedbackConstants", f"import {app_pkg}.R"}
-    body_lines = []
-    for line in lines:
-        s = line.strip()
-        if s.startswith("package "):
-            pkg_line = s
-        elif s.startswith("import "):
-            imports.add(s)
-        else:
-            body_lines.append(line)
-    body = "".join(body_lines)
-    body = body.replace("CONTEXT_IGNORE_SECURITY", 'Context.VIBRATOR_SERVICE')
-    content = pkg_line + "" + "".join(sorted(list(imports))) + "" + body
-    #
-                  if imp not in content:
-                      content = imp + "\n" + content
+              pkg_line = f'package {app_pkg}'
+              imports = {
+                  'import android.content.Context',
+                  'import android.view.View',
+                  'import android.widget.LinearLayout',
+                  'import android.view.HapticFeedbackConstants',
+                  f'import {app_pkg}.R'
+              }
+              body_lines = []
 
-              content = re.sub(r'setView\(([^)]+)\)', r'setView(\1 as android.view.View)', content)
-              content = content.replace("as android.view.View as android.view.View", "as android.view.View")
+              for line in lines:
+                  s = line.strip()
+                  if s.startswith('package '):
+                      pkg_line = s
+                  elif s.startswith('import '):
+                      imports.add(s)
+                  else:
+                      body_lines.append(line)
 
-              with open(path, "w", encoding="utf-8") as f:
-                  f.write(content)
+              body = '\n'.join(body_lines)
+              body = re.sub(r'setView\(([^)]+)\)', r'setView(\1 as android.view.View)', body)
+              body = body.replace('as android.view.View as android.view.View', 'as android.view.View')
+              body = body.replace('CONTEXT_IGNORE_SECURITY', 'Context.VIBRATOR_SERVICE')
+              body = re.sub(r'(\.text\s*=\s*)([a-zA-Z0-9_]+)(\s*\n|\s*;)', r'\1\2.toString()\3', body)
+
+              final_content = pkg_line + '\n\n' + '\n'.join(sorted(list(imports))) + '\n\n' + body
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write(final_content)
           PYEOF
 
           # تصحيح الـ XML وحذف خاصية android:dir الخاطئة وتصحيح القيود
@@ -80,12 +92,12 @@ jobs:
           # إضافة مكتبة constraintlayout عند الحاجة برمجياً
           python3 - << 'PYEOF'
           import os
-          if os.path.exists("app/build.gradle"):
-              with open("app/build.gradle", "r", encoding="utf-8") as f:
+          if os.path.exists('app/build.gradle'):
+              with open('app/build.gradle', 'r', encoding='utf-8') as f:
                   bg = f.read()
-              if "constraintlayout" not in bg and "dependencies {" in bg:
-                  bg = bg.replace("dependencies {", "dependencies {\n    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'")
-                  with open("app/build.gradle", "w", encoding="utf-8") as f:
+              if 'constraintlayout' not in bg and 'dependencies {' in bg:
+                  bg = bg.replace('dependencies {', 'dependencies {\n    implementation \'androidx.constraintlayout:constraintlayout:2.1.4\'')
+                  with open('app/build.gradle', 'w', encoding='utf-8') as f:
                       f.write(bg)
           PYEOF
 
@@ -138,12 +150,11 @@ jobs:
           # تنظيف مستودعات root build.gradle إن وجدت لتفادي التعارض
           python3 - << 'PYEOF'
           import os, re
-          if os.path.exists("build.gradle"):
-              with open("build.gradle", "r", encoding="utf-8") as f:
+          if os.path.exists('build.gradle'):
+              with open('build.gradle', 'r', encoding='utf-8') as f:
                   bg = f.read()
-              # حذف أي allprojects { repositories { ... } } مكررة
-              bg = re.sub(r'allprojectss*{[^}]*repositoriess*{[^}]*}[^}]*}', '', bg)
-              with open("build.gradle", "w", encoding="utf-8") as f:
+              bg = re.sub(r'allprojects\s*\{[^}]*repositories\s*\{[^}]*\}[^}]*\}', '', bg)
+              with open('build.gradle', 'w', encoding='utf-8') as f:
                   f.write(bg)
           PYEOF
 
