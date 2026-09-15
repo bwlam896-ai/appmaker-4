@@ -27,63 +27,42 @@ jobs:
         with:
           gradle-version: '8.2'
 
-      - name: Prepare Project Structure, Fix Kotlin Imports, R & Layout
+      - name: Prepare Project Structure, Fix Kotlin Code & Layout XML
         run: |
           rm -f preview.html || true
 
-          # كشف namespace الحقيقي من build.gradle
-          APP_PKG=$(grep -o "namespaces*['"][^'"]*['"]" app/build.gradle 2>/dev/null | sed -E "s/namespaces*['"]([^'"]*)['"]/\1/" || echo "")
-          if [ -z "$APP_PKG" ]; then
-            APP_PKG=$(grep -o "applicationIds*['"][^'"]*['"]" app/build.gradle 2>/dev/null | sed -E "s/applicationIds*['"]([^'"]*)['"]/\1/" || echo "com.appmaker.app")
-          fi
-
-          # تصحيح ملفات Kotlin مع وضع imports بعد سطر package مباشرة
-          python3 - << PYEOF
+          # تصحيح استيرادات Kotlin وحل غموض setView برمجياً بدقة عبر Python
+          python3 - << 'PYEOF'
           import glob, re
-
-          app_pkg = "$APP_PKG"
 
           for path in glob.glob("app/src/main/java/**/*.kt", recursive=True):
               with open(path, "r", encoding="utf-8") as f:
                   content = f.read()
 
-              # استخراج سطر package
-              pkg_match = re.search(r'^(packages+[a-zA-Z0-9_.]+)', content, re.MULTILINE)
-              if pkg_match:
-                  pkg_stmt = pkg_match.group(1)
-                  body = content[pkg_match.end():]
-              else:
-                  pkg_stmt = "package " + app_pkg
-                  body = content
-
-              imports = [
+              needed_imports = [
                   "import android.view.View",
                   "import android.widget.LinearLayout",
-                  "import android.view.HapticFeedbackConstants",
-                  f"import {app_pkg}.R"
+                  "import android.view.HapticFeedbackConstants"
               ]
-              import_block = "\n" + "\n".join(imp for imp in imports if imp not in body) + "\n"
-              content = pkg_stmt + "\n" + import_block + body
+              for imp in needed_imports:
+                  if imp not in content:
+                      content = imp + "\n" + content
 
-              # حل غموض setView
               content = re.sub(r'setView\(([^)]+)\)', r'setView(\1 as android.view.View)', content)
               content = content.replace("as android.view.View as android.view.View", "as android.view.View")
-
-              # تصحيح تعارض تمرير Int لنص String في السطر 432 وما شابهه
-              content = re.sub(r'(.texts*=s*)([a-zA-Z0-9_]+)(s*\n|s*;)', r'\1\2.toString()\3', content)
 
               with open(path, "w", encoding="utf-8") as f:
                   f.write(content)
           PYEOF
 
-          # تصحيح الـ XML وحذف خاصية android:dir وتعديل القيود
+          # تصحيح الـ XML وحذف خاصية android:dir الخاطئة وتصحيح القيود
           find app/src/main/res/layout -name "*.xml" | while read xmlFile; do
             sed -i 's/android:dir="[^"]*"//g' "$xmlFile" || true
             sed -i 's/app:layout_bottomToBottomOf/layout_bottomToBottomOf/g' "$xmlFile" || true
             sed -i 's/layout_bottomToBottomOf/app:layout_constraintBottom_toBottomOf/g' "$xmlFile" || true
           done
 
-          # إضافة مكتبة constraintlayout إذا لزم
+          # إضافة مكتبة constraintlayout عند الحاجة برمجياً
           python3 - << 'PYEOF'
           import os
           if os.path.exists("app/build.gradle"):
@@ -95,7 +74,7 @@ jobs:
                       f.write(bg)
           PYEOF
 
-          # إعداد مجلدات الأيقونات
+          # إعداد مجلدات الأيقونات وتوفير الأيقونة المربعة والدائرية
           for d in mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi drawable; do
             mkdir -p "app/src/main/res/$d"
           done
@@ -122,7 +101,7 @@ jobs:
             done
           fi
 
-          # ضبط settings.gradle
+          # إصلاح settings.gradle لقبول مستودعات المشروع المرفوعة
           cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
@@ -140,6 +119,18 @@ jobs:
           }
           include ':app'
           EOF
+
+          # تنظيف مستودعات root build.gradle إن وجدت لتفادي التعارض
+          python3 - << 'PYEOF'
+          import os, re
+          if os.path.exists("build.gradle"):
+              with open("build.gradle", "r", encoding="utf-8") as f:
+                  bg = f.read()
+              # حذف أي allprojects { repositories { ... } } مكررة
+              bg = re.sub(r'allprojectss*{[^}]*repositoriess*{[^}]*}[^}]*}', '', bg)
+              with open("build.gradle", "w", encoding="utf-8") as f:
+                  f.write(bg)
+          PYEOF
 
           # إنشاء مفتاح التوقيع
           keytool -genkeypair -v -keystore release.keystore -alias appkey -keyalg RSA -keysize 2048 -validity 10000 -storepass appmaker123 -keypass appmaker123 -dname "CN=AppMaker, OU=Mobile, O=AppMaker, L=Algiers, S=Algiers, C=DZ"
